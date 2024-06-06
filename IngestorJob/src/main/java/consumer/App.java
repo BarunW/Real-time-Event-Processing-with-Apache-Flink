@@ -6,6 +6,9 @@ import models.UserTimeSpent;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
+import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
+import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
+import org.apache.flink.connector.jdbc.JdbcSink;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -24,7 +27,6 @@ import java.time.Duration;
 import java.util.Properties;
 
 public class App {
-
     public static void main(String[] args) throws Exception {
         String jdbcUrl = "jdbc:postgresql://localhost:5432/user_interaction_data";
         String jdbcUser = "postgres";
@@ -38,7 +40,6 @@ public class App {
         Properties consumerConfig = new Properties();
         consumerConfig.setProperty("bootstrap.servers", "localhost:9092");
         consumerConfig.setProperty("group.id", "flink-user-interaction-data-consumer-group");
-
         KafkaSource<String> source = KafkaSource.<String>builder()
                 .setProperties(consumerConfig)
                 .setTopics("user-interaction-data")
@@ -80,11 +81,34 @@ public class App {
                         out.collect(new UserTimeSpent(userId, timeSpent));
                     }
                 });
+
         // JDBC Sink
-        Sink<UserTimeSpent> jdbcSink = SinkFactory.createJdbcSink(jdbcUrl, jdbcUser, jdbcPassword);
+        // using apache flink jdbc connector
+        userTimeSpentStream.addSink(
+                JdbcSink.sink(
+                        "INSERT INTO user_time_spent(user_id, time_spent) VALUES (?,?)",
+                        (statement, user_time_spent) -> {
+                            statement.setString(1, user_time_spent.userId);
+                            statement.setLong(2, user_time_spent.timeSpent);
+                        },  
+                        JdbcExecutionOptions.builder()
+                                .withBatchSize(1000)
+                                .withBatchIntervalMs(200)
+                                .withMaxRetries(2)
+                                .build(),
+                        new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
+                                .withUrl(jdbcUrl)
+                                .withDriverName("org.postgresql.Driver")
+                                .withUsername(jdbcUser)
+                                .withPassword(jdbcPassword)
+                                .build()
+                ));
+        // using flink jdbc connector
+        // Sink<UserTimeSpent> customJdbcSink = SinkFactory.createJdbcSink(jdbcUrl, jdbcUser, jdbcPassword);
+
 
         // adding the sink to userTimeSpentStream
-        userTimeSpentStream.addSink((JdbcUserTimeSpentSink) jdbcSink);
+       // userTimeSpentStream.addSink((JdbcUserTimeSpentSink) customJdbcSink);
         env.execute();
     }
 }

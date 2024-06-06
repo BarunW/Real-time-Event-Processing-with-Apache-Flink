@@ -6,6 +6,7 @@ import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
 import java.sql.*;
 
+// Custom Sink Function in this case jdbc
 public class JdbcUserTimeSpentSink extends RichSinkFunction<UserTimeSpent> implements Sink<UserTimeSpent> {
     private final String jdbcUrl;
     private final String jdbcUser;
@@ -19,6 +20,8 @@ public class JdbcUserTimeSpentSink extends RichSinkFunction<UserTimeSpent> imple
         this.jdbcPassword = jdbcPassword;
     }
 
+
+    // open method is called once before the sinks start processing the records
     @Override
     public  void open(Configuration parameters) throws Exception {
         Class.forName("org.postgresql.Driver");
@@ -30,12 +33,17 @@ public class JdbcUserTimeSpentSink extends RichSinkFunction<UserTimeSpent> imple
         statement.execute(createTableStatement);
     }
 
+    // this method called for each record to be process
+    // in this case we execute the prepared statement
     @Override
     public void invoke(UserTimeSpent userTimeSpent, Context context) throws Exception {
         preparedStatement.setString(1, userTimeSpent.userId);
         preparedStatement.setLong(2, userTimeSpent.timeSpent);
         preparedStatement.executeUpdate();
     }
+
+    // called once after all the records have been processed
+    // closing the connection and the prepared statement
     @Override
     public void close() throws Exception {
         super.close();
